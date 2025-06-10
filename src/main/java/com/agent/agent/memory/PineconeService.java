@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import java.util.*;
+import org.springframework.web.client.RestTemplate;
 
 @Service
 public class PineconeService {
@@ -25,13 +26,18 @@ public class PineconeService {
     @Value("${pinecone.api.key}")
     private String apiKey;
     
+    @Value("${pinecone.api.url}")
+    private String baseUrl;
+    
+    private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final CloseableHttpClient httpClient;
     private static final int VECTOR_DIMENSION = 1024; // Updated to match Pinecone index configuration
     private static final String INDEX_IDENTIFIER = "anki83u"; // Specific identifier for your index
 
-    public PineconeService(ObjectMapper objectMapper) {
+    public PineconeService(ObjectMapper objectMapper, RestTemplate restTemplate) {
         this.objectMapper = objectMapper;
+        this.restTemplate = restTemplate;
         this.httpClient = HttpClients.createDefault();
         logger.info("PineconeService initialized with environment: {}, index: {}", environment, indexName);
         logger.debug("API Key (first 8 chars): {}", apiKey != null ? apiKey.substring(0, 8) + "..." : "null");
@@ -215,5 +221,36 @@ public class PineconeService {
             logger.error(error, e);
             throw new RuntimeException(error, e);
         }
+    }
+
+    public void upsertVector(String id, List<Float> values, Map<String, Object> metadata) {
+        Map<String, Object> vector = new HashMap<>();
+        vector.put("id", id);
+        vector.put("values", values);
+        vector.put("metadata", metadata);
+
+        // Check if the document already exists
+        List<Map<String, Object>> existingVectors = queryVectors(values, 1);
+        if (!existingVectors.isEmpty()) {
+            // Update the existing document
+            updateVector(id, values, metadata);
+        } else {
+            // Insert the new document
+            insertVector(vector);
+        }
+    }
+
+    private void updateVector(String id, List<Float> values, Map<String, Object> metadata) {
+        Map<String, Object> vector = new HashMap<>();
+        vector.put("id", id);
+        vector.put("values", values);
+        vector.put("metadata", metadata);
+
+        // Call Pinecone's update API
+        restTemplate.postForObject(baseUrl + "/vectors/update", vector, Map.class);
+    }
+
+    private void insertVector(Map<String, Object> vector) {
+        restTemplate.postForObject(baseUrl + "/vectors/upsert", vector, Map.class);
     }
 } 

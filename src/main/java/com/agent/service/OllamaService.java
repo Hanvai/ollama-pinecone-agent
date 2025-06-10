@@ -14,7 +14,7 @@ import java.util.stream.Collectors;
 public class OllamaService implements EmbeddingService {
     private static final Logger logger = LoggerFactory.getLogger(OllamaService.class);
     private static final String OLLAMA_API_URL = "http://localhost:11434/api";
-    private static final String EMBEDDINGS_ENDPOINT = "/embeddings";
+    private static final String EMBEDDINGS_ENDPOINT = "/api/embeddings";
     private static final String CHAT_ENDPOINT = "/chat";
     private static final int DIMENSION = 4096; // Default dimension for most Ollama models
     private static final int TARGET_DIMENSION = 1024; // Pinecone index dimension
@@ -36,40 +36,48 @@ public class OllamaService implements EmbeddingService {
 
     @Override
     public List<Float> getEmbeddings(String text) {
-        try {
-            logger.debug("Getting embeddings for text of length: {}", text.length());
-            Map<String, String> request = Map.of(
-                "model", model,
-                "prompt", text
-            );
+        logger.debug("Getting embeddings for text of length: {}", text.length());
+        Map<String, String> request = new HashMap<>();
+        request.put("model", model);
+        request.put("prompt", text);
 
-            Map<String, Object> response = restTemplate.postForObject(baseUrl + EMBEDDINGS_ENDPOINT, request, Map.class);
-            if (response == null || !response.containsKey("embedding")) {
-                throw new RuntimeException("No embedding found in Ollama response");
+        String url = baseUrl + EMBEDDINGS_ENDPOINT;
+        logger.debug("Ollama embeddings URL: {}", url);
+        logger.debug("Ollama embeddings request: {}", request);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        HttpEntity<Map<String, String>> requestEntity = new HttpEntity<>(request, headers);
+
+        ResponseEntity<Map> response = restTemplate.exchange(
+            url,
+            HttpMethod.POST,
+            requestEntity,
+            Map.class
+        );
+
+        if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+            Object embeddingObj = response.getBody().get("embedding");
+            if (embeddingObj == null) {
+                logger.error("No 'embedding' key in Ollama response: {}", response.getBody());
+                throw new RuntimeException("No 'embedding' key in Ollama response");
             }
-
-            @SuppressWarnings("unchecked")
-            List<Double> rawEmbeddings = (List<Double>) response.get("embedding");
-            
-            // Convert to float and ensure correct dimension
+            List<Double> rawEmbeddings = (List<Double>) embeddingObj;
             List<Float> embeddings = rawEmbeddings.stream()
                 .map(Double::floatValue)
                 .collect(Collectors.toList());
 
-            // If dimension is larger than target, reduce it
             if (embeddings.size() > TARGET_DIMENSION) {
                 embeddings = reduceDimensions(embeddings);
-            }
-            // If dimension is smaller than target, pad with zeros
-            else if (embeddings.size() < TARGET_DIMENSION) {
+            } else if (embeddings.size() < TARGET_DIMENSION) {
                 embeddings = padDimensions(embeddings);
             }
 
             logger.debug("Generated embeddings with dimension: {}", embeddings.size());
             return embeddings;
-        } catch (Exception e) {
-            logger.error("Error getting embeddings from Ollama: {}", e.getMessage());
-            throw new RuntimeException("Error getting embeddings from Ollama", e);
+        } else {
+            logger.error("Error getting embeddings from Ollama: {} Body: {}", response.getStatusCode(), response.getBody());
+            throw new RuntimeException("Error getting embeddings from Ollama");
         }
     }
 

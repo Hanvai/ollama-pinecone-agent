@@ -26,8 +26,8 @@ public class AgentConfig {
     }
     
     @Bean
-    public PineconeService pineconeService(ObjectMapper objectMapper) {
-        return new PineconeService(objectMapper);
+    public PineconeService pineconeService(ObjectMapper objectMapper, RestTemplate restTemplate) {
+        return new PineconeService(objectMapper, restTemplate);
     }
 
     @Bean

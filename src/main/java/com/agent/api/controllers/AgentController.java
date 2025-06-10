@@ -19,6 +19,10 @@ import java.util.Date;
 import java.util.Arrays;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 
 @RestController
 @RequestMapping("/api/agent")
@@ -150,54 +154,50 @@ public class AgentController {
     }
 
     @PostMapping("/test-batch")
-    public ResponseEntity<Map<String, Object>> testBatchDocuments() {
+    public ResponseEntity<?> testBatchStorage() {
+        List<Map<String, Object>> documents = new ArrayList<>();
+        List<String> testTexts = Arrays.asList(
+            "Artificial Intelligence (AI) is transforming healthcare by enabling faster diagnosis and personalized treatment plans. Machine learning algorithms can analyze medical images and patient data to identify patterns and predict outcomes.",
+            "Climate change is causing rising global temperatures and extreme weather events. Scientists are using AI to model climate patterns and predict future changes, helping governments make informed decisions about environmental policies.",
+            "The stock market is influenced by various factors including company performance, economic indicators, and investor sentiment. AI systems can analyze market data to identify trends and make trading recommendations.",
+            "Natural Language Processing (NLP) is a branch of AI that focuses on understanding and generating human language. Modern NLP models can translate between languages, summarize text, and answer questions about content.",
+            "Robotics combines AI with mechanical engineering to create machines that can perform tasks autonomously. These robots are being used in manufacturing, healthcare, and even space exploration."
+        );
+
+        for (String text : testTexts) {
+            List<Float> embeddings = ollamaService.getEmbeddings(text);
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("text", text);
+            metadata.put("timestamp", new Date().toString());
+            metadata.put("source", "batch-test");
+
+            // Generate a unique ID based on the document's content
+            String id = generateDocumentId(text);
+
+            Map<String, Object> document = new HashMap<>();
+            document.put("id", id);
+            document.put("text", text);
+            document.put("embedding_dimensions", embeddings.size());
+            documents.add(document);
+
+            pineconeService.upsertVector(id, embeddings, metadata);
+        }
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("documents", documents);
+        response.put("message", "Successfully stored batch documents");
+        response.put("status", "success");
+
+        return ResponseEntity.ok(response);
+    }
+
+    private String generateDocumentId(String text) {
         try {
-            List<Map<String, Object>> results = new ArrayList<>();
-            List<String> documents = Arrays.asList(
-                "Artificial Intelligence (AI) is transforming healthcare by enabling faster diagnosis and personalized treatment plans. Machine learning algorithms can analyze medical images and patient data to identify patterns and predict outcomes.",
-                "Climate change is causing rising global temperatures and extreme weather events. Scientists are using AI to model climate patterns and predict future changes, helping governments make informed decisions about environmental policies.",
-                "The stock market is influenced by various factors including company performance, economic indicators, and investor sentiment. AI systems can analyze market data to identify trends and make trading recommendations.",
-                "Natural Language Processing (NLP) is a branch of AI that focuses on understanding and generating human language. Modern NLP models can translate between languages, summarize text, and answer questions about content.",
-                "Robotics combines AI with mechanical engineering to create machines that can perform tasks autonomously. These robots are being used in manufacturing, healthcare, and even space exploration."
-            );
-
-            List<Map<String, Object>> vectors = new ArrayList<>();
-            for (String doc : documents) {
-                String id = UUID.randomUUID().toString();
-                List<Float> embeddings = ollamaService.getEmbeddings(doc);
-                
-                Map<String, Object> metadata = new HashMap<>();
-                metadata.put("text", doc);
-                metadata.put("source", "batch-test");
-                metadata.put("timestamp", new Date().toString());
-                
-                Map<String, Object> vector = new HashMap<>();
-                vector.put("id", id);
-                vector.put("values", embeddings);
-                vector.put("metadata", metadata);
-                vectors.add(vector);
-                
-                results.add(Map.of(
-                    "id", id,
-                    "text", doc,
-                    "embedding_dimensions", embeddings.size()
-                ));
-            }
-
-            pineconeService.upsertVectors(vectors);
-
-            Map<String, Object> response = new HashMap<>();
-            response.put("status", "success");
-            response.put("message", "Successfully stored batch documents");
-            response.put("documents", results);
-            
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            logger.error("Error in batch test: {}", e.getMessage());
-            Map<String, Object> response = new HashMap<>();
-            response.put("status", "error");
-            response.put("message", "Error in batch test: " + e.getMessage());
-            return ResponseEntity.internalServerError().body(response);
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(text.getBytes(StandardCharsets.UTF_8));
+            return Base64.getEncoder().encodeToString(hash);
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("Error generating document ID", e);
         }
     }
 

@@ -1,4 +1,0 @@
-# Pinecone Configuration
-pinecone.api.key=your-api-key-here
-pinecone.environment=your-environment-here
-pinecone.index.name=your-index-name-here 
